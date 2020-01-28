@@ -1,0 +1,84 @@
+name: Test, build and deploy
+on: [push,pull_request]
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache Flutter dependencies
+        uses: actions/cache@v1
+        with:
+          path: /Users/runner/hostedtoolcache/flutter
+          key: macos-flutter
+      - uses: subosito/flutter-action@v1
+        with:
+          flutter-version: '1.13.6'
+          channel: 'beta'
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test --coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: coverage/lcov.info
+  drive_android:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        api-level: [29]
+        target: [google_apis]
+    needs: test
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache Flutter dependencies
+        uses: actions/cache@v1
+        with:
+          path: /Users/runner/hostedtoolcache/flutter
+          key: macos-flutter
+      - uses: subosito/flutter-action@v1
+        with:
+          flutter-version: '1.13.6'
+          channel: 'beta'
+      - name: Run Flutter Driver tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: ${{ matrix.target }}
+          arch: x86_64
+          profile: Nexus 6
+          script: flutter drive --target=test_driver/app.dart
+  drive_ios:
+    strategy:
+      matrix:
+        device:
+          - "iPhone 8 (13.2.2)"
+          - "iPhone 11 Pro Max (13.2.2)"
+      fail-fast: false
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - name: List all simulators
+        run: xcrun instruments -s
+      - name: Start Simulator
+        run: |
+          UDID=$(
+            xcrun instruments -s |
+            awk \
+              -F ' *[][]' \
+              -v 'device=${{ matrix.device }}' \
+              '$1 == device { print $2 }'
+          )
+          xcrun simctl boot "${UDID:?No Simulator with this name found}"
+      - uses: actions/checkout@v2
+      - name: Cache Flutter dependencies
+        uses: actions/cache@v1
+        with:
+          path: /Users/runner/hostedtoolcache/flutter
+          key: macos-flutter
+      - uses: subosito/flutter-action@v1
+        with:
+          flutter-version: '1.13.6'
+          channel: 'beta'
+      - name: Run Flutter Driver tests
+        run: flutter drive --target=test_driver/app.dart
